@@ -22,7 +22,7 @@
   function writeSession(user) {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
       role: user?.role || "Owner",
-      email: user?.email || "vishalregmi82@gmail.com",
+      email: user?.email || "admin",
       issuedAt: now(),
       expiresAt: now() + SESSION_MS,
       csrf: crypto.randomUUID ? crypto.randomUUID() : String(now())
@@ -49,7 +49,7 @@
     document.documentElement.classList.add("cms-authenticated");
     window.kssCmsAuth = {
       logout() {
-        audit("logout", { user: "vishalregmi82@gmail.com" });
+        audit("logout", { user: readJson(SESSION_KEY)?.email || "admin" });
         fetch(`${CMS_API_URL}/api/auth/logout`, {
           method: "POST",
           credentials: "include"
@@ -67,8 +67,22 @@
   window.addEventListener("DOMContentLoaded", () => {
     const form = document.querySelector("#adminLogin");
     const message = document.querySelector("#loginMessage");
+    const credentialFields = [form.schoolAccessId, form.schoolAccessSecret];
+    function clearCredentialFields() {
+      credentialFields.forEach((field) => {
+        if (document.activeElement !== field) field.value = "";
+      });
+    }
     form.reset();
-    setTimeout(() => form.reset(), 100);
+    clearCredentialFields();
+    setTimeout(clearCredentialFields, 100);
+    setTimeout(clearCredentialFields, 750);
+    setTimeout(clearCredentialFields, 1500);
+    credentialFields.forEach((field) => {
+      field.addEventListener("focus", () => field.removeAttribute("readonly"));
+      field.addEventListener("pointerdown", () => field.removeAttribute("readonly"));
+      field.addEventListener("keydown", () => field.removeAttribute("readonly"));
+    });
     const lock = readJson(LOCK_KEY);
     if (lock?.until > now()) {
       message.textContent = "Too many attempts. Try again later.";
@@ -78,9 +92,9 @@
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const email = form.cmsEmail.value.trim().toLowerCase();
-      const password = form.cmsPassword.value;
-      const otp = form.cmsOtp.value.trim();
+      const email = form.schoolAccessId.value.trim().toLowerCase();
+      const password = form.schoolAccessSecret.value;
+      const otp = form.schoolAccessCode.value.trim();
       const attempts = Number(localStorage.getItem(ATTEMPT_KEY) || "0");
       const button = form.querySelector("button");
 

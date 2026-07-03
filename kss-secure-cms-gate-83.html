@@ -13,12 +13,14 @@
 <body class="login-page">
   <main class="login-shell" id="main">
     <form class="form-card login-card" id="adminLogin" autocomplete="off" data-lpignore="true">
+      <input class="sr-only" tabindex="-1" aria-hidden="true" autocomplete="username">
+      <input class="sr-only" tabindex="-1" aria-hidden="true" type="password" autocomplete="current-password">
       <span class="brand-mark">K</span>
       <h1>Secure CMS Login</h1>
       <p>This hidden route is not linked from the public website and is marked noindex.</p>
-      <label>Email<input required type="email" name="cmsEmail" autocomplete="off" data-lpignore="true" autocapitalize="none" spellcheck="false"></label>
-      <label>Password<input required type="password" name="cmsPassword" autocomplete="new-password" data-lpignore="true"></label>
-      <label>2FA code <small>Leave blank unless 2FA is enabled</small><input name="cmsOtp" inputmode="numeric" autocomplete="off" data-lpignore="true"></label>
+      <label>Email<input required type="text" name="schoolAccessId" autocomplete="off" data-lpignore="true" autocapitalize="none" spellcheck="false" readonly></label>
+      <label>Password<input required type="password" name="schoolAccessSecret" autocomplete="off" data-lpignore="true" readonly></label>
+      <label>2FA code <small>Leave blank unless 2FA is enabled</small><input name="schoolAccessCode" inputmode="numeric" autocomplete="off" data-lpignore="true"></label>
       <button class="btn primary" type="submit">Sign in</button>
       <p class="form-note" id="loginMessage" role="status"></p>
     </form>
