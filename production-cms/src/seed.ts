@@ -40,7 +40,12 @@ await prisma.user.upsert({
     passwordHash: await hashPassword(adminPassword),
     roleId: ownerRole.id
   },
-  update: {}
+  update: {
+    passwordHash: await hashPassword(adminPassword),
+    roleId: ownerRole.id,
+    lockedUntil: null,
+    isLocked: false
+  }
 });
 
 console.log(`Seeded CMS roles, permissions and owner account for ${adminEmail}.`);
