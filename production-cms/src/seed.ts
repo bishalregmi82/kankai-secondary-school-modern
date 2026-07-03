@@ -25,15 +25,22 @@ for (const role of roles) {
 }
 
 const ownerRole = await prisma.role.findUniqueOrThrow({ where: { name: "Owner" } });
+const adminEmail = process.env.ADMIN_EMAIL || "owner@kankaiss.edu.np";
+const adminPassword = process.env.ADMIN_PASSWORD;
+
+if (!adminPassword || adminPassword.length < 12) {
+  throw new Error("Set ADMIN_PASSWORD in Render before running npm run seed. Use at least 12 characters.");
+}
+
 await prisma.user.upsert({
-  where: { email: "owner@kankaiss.edu.np" },
+  where: { email: adminEmail },
   create: {
-    email: "owner@kankaiss.edu.np",
+    email: adminEmail,
     name: "Kankai Owner",
-    passwordHash: await hashPassword("ChangeMe!2083"),
+    passwordHash: await hashPassword(adminPassword),
     roleId: ownerRole.id
   },
   update: {}
 });
 
-console.log("Seeded CMS roles, permissions and owner account.");
+console.log(`Seeded CMS roles, permissions and owner account for ${adminEmail}.`);
