@@ -3,6 +3,7 @@ import multer from "multer";
 import path from "node:path";
 import crypto from "node:crypto";
 import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
+import { z } from "zod";
 import { prisma } from "../db.js";
 import { requireAdmin, requireCsrf } from "../security/session.js";
 import { requirePermission } from "../security/rbac.js";
@@ -24,6 +25,29 @@ const upload = multer({
     const allowed = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
     cb(null, allowed.includes(file.mimetype));
   }
+});
+
+const mediaUpdateSchema = z.object({
+  alt: z.string().max(500).optional(),
+  tags: z.array(z.string().max(80)).optional(),
+  useForAllLanguages: z.boolean().optional()
+});
+
+mediaRouter.get("/", requirePermission("read", "media"), async (req, res) => {
+  const search = String(req.query.search || "").trim();
+  const media = await prisma.media.findMany({
+    where: search ? {
+      OR: [
+        { alt: { contains: search, mode: "insensitive" } },
+        { publicId: { contains: search, mode: "insensitive" } },
+        { tags: { has: search } }
+      ]
+    } : undefined,
+    include: { variants: { include: { language: true } }, uploads: true },
+    orderBy: { createdAt: "desc" },
+    take: 100
+  });
+  res.json({ media });
 });
 
 function uploadToCloudinary(file: Express.Multer.File): Promise<UploadApiResponse> {
@@ -78,4 +102,21 @@ mediaRouter.post("/upload", requireCsrf, requirePermission("create", "media"), u
   }));
   await prisma.auditLog.create({ data: { userId: res.locals.user.id, action: "file_upload", entity: "Media" } });
   res.json({ files: saved });
+});
+
+mediaRouter.put("/:id", requireCsrf, requirePermission("update", "media"), async (req, res) => {
+  const media = await prisma.media.update({
+    where: { id: req.params.id },
+    data: mediaUpdateSchema.parse(req.body)
+  });
+  await prisma.auditLog.create({ data: { userId: res.locals.user.id, action: "media_update", entity: "Media", entityId: media.id } });
+  res.json({ media });
+});
+
+mediaRouter.delete("/:id", requireCsrf, requirePermission("delete", "media"), async (req, res) => {
+  const media = await prisma.media.findUniqueOrThrow({ where: { id: req.params.id } });
+  await cloudinary.uploader.destroy(media.publicId, { resource_type: "image" }).catch(() => undefined);
+  await prisma.media.delete({ where: { id: req.params.id } });
+  await prisma.auditLog.create({ data: { userId: res.locals.user.id, action: "media_delete", entity: "Media", entityId: req.params.id } });
+  res.json({ ok: true });
 });

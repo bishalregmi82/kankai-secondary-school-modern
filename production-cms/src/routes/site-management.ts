@@ -76,9 +76,27 @@ siteRouter.post("/menus", requireCsrf, requirePermission("create", "menu"), asyn
   res.json({ menu });
 });
 
+siteRouter.get("/menus", requirePermission("read", "menu"), async (_req, res) => {
+  const menus = await prisma.menu.findMany({ include: { items: { orderBy: { sortOrder: "asc" } } } });
+  res.json({ menus });
+});
+
 siteRouter.post("/menus/items", requireCsrf, requirePermission("create", "menu"), async (req, res) => {
   const input = menuItemSchema.parse(req.body);
   const item = await prisma.menuItem.create({ data: input });
   await prisma.auditLog.create({ data: { userId: res.locals.user.id, action: "menu_item_create", entity: "MenuItem", entityId: item.id } });
   res.json({ item });
+});
+
+siteRouter.put("/menus/items/:id", requireCsrf, requirePermission("update", "menu"), async (req, res) => {
+  const input = menuItemSchema.omit({ menuId: true }).partial().parse(req.body);
+  const item = await prisma.menuItem.update({ where: { id: req.params.id }, data: input });
+  await prisma.auditLog.create({ data: { userId: res.locals.user.id, action: "menu_item_update", entity: "MenuItem", entityId: item.id } });
+  res.json({ item });
+});
+
+siteRouter.delete("/menus/items/:id", requireCsrf, requirePermission("update", "menu"), async (req, res) => {
+  await prisma.menuItem.delete({ where: { id: req.params.id } });
+  await prisma.auditLog.create({ data: { userId: res.locals.user.id, action: "menu_item_delete", entity: "MenuItem", entityId: req.params.id } });
+  res.json({ ok: true });
 });

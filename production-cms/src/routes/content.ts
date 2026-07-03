@@ -5,13 +5,54 @@ import { requireAdmin, requireCsrf } from "../security/session.js";
 import { requirePermission } from "../security/rbac.js";
 
 export const contentRouter = express.Router();
+export const publicContentRouter = express.Router();
 contentRouter.use(requireAdmin);
 
 const translationSchema = z.object({
   key: z.string().min(1).max(180),
-  languageId: z.string().min(1),
+  languageId: z.string().min(1).optional(),
+  languageCode: z.string().min(2).max(12).optional(),
   value: z.string().max(20000),
   status: z.enum(["DRAFT", "PUBLISHED", "SCHEDULED", "ARCHIVED"])
+});
+
+async function languageIdFromInput(languageId?: string, languageCode = "en") {
+  if (languageId) return languageId;
+  const language = await prisma.language.upsert({
+    where: { code: languageCode.toLowerCase() },
+    update: { isEnabled: true },
+    create: {
+      code: languageCode.toLowerCase(),
+      name: languageCode.toUpperCase(),
+      nativeName: languageCode.toUpperCase(),
+      isDefault: languageCode.toLowerCase() === "en",
+      isEnabled: true,
+      publicState: "PUBLISHED"
+    }
+  });
+  return language.id;
+}
+
+publicContentRouter.get("/", async (req, res) => {
+  const languageCode = String(req.query.lang || "en").toLowerCase();
+  const pagePath = req.query.path ? String(req.query.path) : undefined;
+  const items = await prisma.contentItem.findMany({
+    where: pagePath ? { OR: [{ pagePath }, { pagePath: null }] } : undefined,
+    include: { translations: { include: { language: true } } }
+  });
+
+  const content = Object.fromEntries(items.map((item) => {
+    const current = item.translations.find((translation) => translation.language.code === languageCode && translation.status === "PUBLISHED");
+    const fallback = item.translations.find((translation) => translation.language.code === "en" && translation.status === "PUBLISHED");
+    return [item.key, current?.value || fallback?.value || item.fallbackValue || ""];
+  }));
+
+  res.json({ content });
+});
+
+contentRouter.get("/languages", requirePermission("read", "content"), async (_req, res) => {
+  const languages = await prisma.language.findMany({ orderBy: [{ isDefault: "desc" }, { code: "asc" }] });
+  res.json({ languages });
 });
 
 contentRouter.get("/", requirePermission("read", "content"), async (_req, res) => {
@@ -25,6 +66,7 @@ contentRouter.get("/", requirePermission("read", "content"), async (_req, res) =
 
 contentRouter.put("/translation", requireCsrf, requirePermission("update", "content"), async (req, res) => {
   const input = translationSchema.parse(req.body);
+  const languageId = await languageIdFromInput(input.languageId, input.languageCode);
   const item = await prisma.contentItem.upsert({
     where: { key: input.key },
     create: { key: input.key, contentType: "text" },
@@ -32,19 +74,19 @@ contentRouter.put("/translation", requireCsrf, requirePermission("update", "cont
   });
 
   const existing = await prisma.contentTranslation.findUnique({
-    where: { itemId_languageId: { itemId: item.id, languageId: input.languageId } }
+    where: { itemId_languageId: { itemId: item.id, languageId } }
   });
 
   const translation = await prisma.contentTranslation.upsert({
-    where: { itemId_languageId: { itemId: item.id, languageId: input.languageId } },
-    create: { itemId: item.id, languageId: input.languageId, value: input.value, status: input.status },
+    where: { itemId_languageId: { itemId: item.id, languageId } },
+    create: { itemId: item.id, languageId, value: input.value, status: input.status },
     update: { value: input.value, status: input.status }
   });
 
   await prisma.contentRevision.create({
     data: {
       itemId: item.id,
-      languageCode: input.languageId,
+      languageCode: input.languageCode || languageId,
       oldValue: existing?.value,
       newValue: input.value,
       changedBy: res.locals.user.id
@@ -56,14 +98,15 @@ contentRouter.put("/translation", requireCsrf, requirePermission("update", "cont
 
 contentRouter.post("/autosave", requireCsrf, requirePermission("update", "content"), async (req, res) => {
   const input = translationSchema.omit({ status: true }).parse(req.body);
+  const languageId = await languageIdFromInput(input.languageId, input.languageCode);
   const item = await prisma.contentItem.upsert({
     where: { key: input.key },
     create: { key: input.key, contentType: "text" },
     update: {}
   });
   const draft = await prisma.contentTranslation.upsert({
-    where: { itemId_languageId: { itemId: item.id, languageId: input.languageId } },
-    create: { itemId: item.id, languageId: input.languageId, value: input.value, status: "DRAFT" },
+    where: { itemId_languageId: { itemId: item.id, languageId } },
+    create: { itemId: item.id, languageId, value: input.value, status: "DRAFT" },
     update: { value: input.value, status: "DRAFT" }
   });
   res.json({ draft, autosavedAt: new Date().toISOString() });
