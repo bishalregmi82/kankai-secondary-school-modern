@@ -67,6 +67,8 @@
   window.addEventListener("DOMContentLoaded", () => {
     const form = document.querySelector("#adminLogin");
     const message = document.querySelector("#loginMessage");
+    form.reset();
+    setTimeout(() => form.reset(), 100);
     const lock = readJson(LOCK_KEY);
     if (lock?.until > now()) {
       message.textContent = "Too many attempts. Try again later.";
@@ -76,9 +78,9 @@
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const email = form.email.value.trim().toLowerCase();
-      const password = form.password.value;
-      const otp = form.otp.value.trim();
+      const email = form.cmsEmail.value.trim().toLowerCase();
+      const password = form.cmsPassword.value;
+      const otp = form.cmsOtp.value.trim();
       const attempts = Number(localStorage.getItem(ATTEMPT_KEY) || "0");
       const button = form.querySelector("button");
 
