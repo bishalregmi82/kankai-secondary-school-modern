@@ -49,10 +49,10 @@ authRouter.post("/login", loginLimiter, async (req, res) => {
   }
 
   await prisma.adminSession.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } });
-  await createAdminSession(res, user.id, req.ip, req.header("user-agent"));
+  const csrfToken = await createAdminSession(res, user.id, req.ip, req.header("user-agent"));
   await prisma.loginAttempt.create({ data: { email, userId: user.id, success: true, ipAddress: req.ip } });
   await prisma.auditLog.create({ data: { userId: user.id, action: "login", entity: "AdminSession", ipAddress: req.ip } });
-  res.json({ ok: true });
+  res.json({ ok: true, csrfToken });
 });
 
 authRouter.get("/me", requireAdmin, async (_req, res) => {

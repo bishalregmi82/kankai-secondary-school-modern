@@ -8,6 +8,43 @@ const cmsConfig = {
   ]
 };
 
+const CMS_API_URL = window.KSS_CMS_API_URL || window.kssCmsAuth?.apiUrl || "https://kankai-school-cms.onrender.com";
+const CMS_SESSION_KEY = "kss-cms-session";
+let noticesLoadedFromCms = false;
+
+function escapeHtml(value = "") {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;"
+  }[char]));
+}
+
+function readCmsSession() {
+  try {
+    return JSON.parse(sessionStorage.getItem(CMS_SESSION_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+
+async function cmsFetch(path, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (options.body && !(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
+  const csrf = window.kssCmsAuth?.csrf?.() || readCmsSession()?.csrf;
+  if (csrf && options.method && options.method !== "GET") headers["x-csrf-token"] = csrf;
+  const response = await fetch(`${CMS_API_URL}${path}`, {
+    ...options,
+    headers,
+    credentials: "include"
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(payload?.error || "CMS request failed");
+  return payload;
+}
+
 const translations = {
   en: {
     nav: { about: "About", academics: "Academics", admission: "Admission", notices: "Notices", events: "Events", faculty: "Faculty", results: "Results", admin: "Admin" },
@@ -370,6 +407,8 @@ $$(".reveal").forEach((node) => observer.observe(node));
 
 function render() {
   applyLanguage();
+  loadPublicContent();
+  loadPublicSeo();
   if ($("#timeline")) {
     $("#timeline").innerHTML = data.timeline.map(([year, text]) => `<article><strong>${year}</strong><p>${text}</p></article>`).join("");
   }
@@ -379,17 +418,23 @@ function render() {
   if ($("#admissionSteps")) {
     $("#admissionSteps").innerHTML = ["Online inquiry", "Document verification", "Level interaction", "Admission confirmation"].map((step, i) => `<article><span>${i + 1}</span><div><h3>${step}</h3><p>CMS-managed guidance, required documents and fee notes for guardians.</p></div></article>`).join("");
   }
-  if ($("#noticeGrid")) renderNotices();
+  if ($("#noticeGrid")) {
+    renderNotices();
+    loadPublicNotices();
+  }
   if ($("#eventList")) {
     $("#eventList").innerHTML = data.events.map(([title, text]) => `<article><small>Campus</small><h3>${title}</h3><p>${text}</p></article>`).join("");
+    loadPublicEvents();
   }
   if ($("#facultyCategoryGrid")) {
     $("#facultyCategoryGrid").innerHTML = data.facultyCategories.map(([title, text, url, icon]) => `<a class="program-card faculty-category" href="${url}"><span class="icon">${icon}</span><h3>${title}</h3><p>${text}</p><strong>View faculty</strong></a>`).join("");
+    loadPublicFaculty();
   }
   if ($("#facultyDetailGrid")) {
     const key = document.body.dataset.facultyPage;
     const teachers = data.facultyDetails[key] || [];
     $("#facultyDetailGrid").innerHTML = teachers.map(([name, role, exp, subject]) => `<article class="faculty-card"><div class="avatar">${name.split(" ").map((part) => part[0]).join("").slice(0, 2)}</div><h3>${name}</h3><p>${role}</p><small>${exp}</small><p><strong>${subject}</strong></p></article>`).join("");
+    loadPublicFaculty();
   }
   if ($("#facilityGrid")) {
     $("#facilityGrid").innerHTML = data.facilities.map(([title, text, icon]) => `<article class="facility-card"><span class="icon">${icon}</span><h3>${title}</h3><p>${text}</p></article>`).join("");
@@ -398,6 +443,126 @@ function render() {
     $("#galleryGrid").innerHTML = data.gallery.map(([title, img]) => `<a class="gallery-item" href="${img}" target="_blank" rel="noreferrer"><img src="${img}" alt="${title}"><span>${title}</span></a>`).join("");
   }
   if ($("#adminPanel")) renderAdmin("dashboard");
+}
+
+function normalizePublicNotice(notice) {
+  return {
+    id: notice.id,
+    slug: notice.slug,
+    title: { [currentLang]: notice.title },
+    body: { [currentLang]: notice.body || "" },
+    category: { [currentLang]: notice.category || "General", en: notice.category || "General" },
+    date: (notice.publishAt || "").slice(0, 10) || new Date().toISOString().slice(0, 10),
+    pinned: Boolean(notice.pinned),
+    status: { [currentLang]: "published" }
+  };
+}
+
+function normalizeAdminNotice(notice) {
+  const title = {};
+  const body = {};
+  const category = {};
+  const status = {};
+  (notice.translations || []).forEach((translation) => {
+    const code = translation.language?.code || "en";
+    title[code] = translation.title;
+    body[code] = translation.body;
+    category[code] = translation.category;
+    status[code] = String(translation.status || "DRAFT").toLowerCase();
+  });
+  return {
+    id: notice.id,
+    slug: notice.slug,
+    title: Object.keys(title).length ? title : { en: notice.title },
+    body: Object.keys(body).length ? body : { en: notice.body || "" },
+    category: Object.keys(category).length ? category : { en: notice.category || "General" },
+    date: (notice.publishAt || "").slice(0, 10) || new Date().toISOString().slice(0, 10),
+    publishAt: notice.publishAt,
+    expireAt: notice.expireAt,
+    pinned: Boolean(notice.pinned),
+    status: Object.keys(status).length ? status : { en: "draft" }
+  };
+}
+
+async function loadPublicNotices() {
+  if (!$("#noticeGrid") || noticesLoadedFromCms) return;
+  try {
+    const payload = await cmsFetch(`/api/public/notices?lang=${encodeURIComponent(currentLang)}`);
+    if (payload?.notices?.length) {
+      data.notices = payload.notices.map(normalizePublicNotice);
+    }
+    noticesLoadedFromCms = true;
+    renderNotices();
+  } catch {
+    noticesLoadedFromCms = true;
+  }
+}
+
+async function loadPublicContent() {
+  try {
+    const payload = await cmsFetch(`/api/public/content?lang=${encodeURIComponent(currentLang)}&path=${encodeURIComponent(location.pathname)}`);
+    Object.entries(payload.content || {}).forEach(([key, value]) => {
+      if (translations[currentLang] && key in translations[currentLang]) translations[currentLang][key] = value;
+    });
+    applyLanguage();
+  } catch {}
+}
+
+async function loadPublicSeo() {
+  try {
+    const path = location.pathname.endsWith("/") ? "/" : `/${location.pathname.split("/").pop()}`;
+    const payload = await cmsFetch(`/api/public/seo?lang=${encodeURIComponent(currentLang)}&path=${encodeURIComponent(path)}`);
+    if (!payload.seo) return;
+    document.title = payload.seo.title || document.title;
+    let meta = document.querySelector('meta[name="description"]');
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.setAttribute("name", "description");
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute("content", payload.seo.description || "");
+  } catch {}
+}
+
+async function loadPublicEvents() {
+  if (!$("#eventList")) return;
+  try {
+    const payload = await cmsFetch("/api/public/events");
+    if (payload.events?.length) {
+      data.events = payload.events.map((event) => [event.title, event.body, event.category, (event.startsAt || "").slice(0, 10)]);
+      $("#eventList").innerHTML = data.events.map(([title, text, category, date]) => `<article><small>${escapeHtml(category || "Campus")} &middot; ${escapeHtml(date || "")}</small><h3>${escapeHtml(title)}</h3><p>${escapeHtml(text)}</p></article>`).join("");
+    }
+  } catch {}
+}
+
+async function loadPublicFaculty() {
+  if (!$("#facultyCategoryGrid") && !$("#facultyDetailGrid")) return;
+  try {
+    const payload = await cmsFetch("/api/public/faculty");
+    if (!payload.departments?.length) return;
+    const slugMap = {
+      "basic ecd": "basic-ecd",
+      "basic level": "basic-level",
+      science: "science",
+      education: "education",
+      humanities: "humanities",
+      management: "management"
+    };
+    data.facultyCategories = payload.departments.map((department) => {
+      const slug = slugMap[department.name.toLowerCase()] || slugify(department.name);
+      return [department.name, `${department.teachers.length} teacher records managed in CMS.`, `faculty-${slug}.html`, department.name.slice(0, 2).toUpperCase()];
+    });
+    data.facultyDetails = Object.fromEntries(payload.departments.map((department) => {
+      const slug = slugMap[department.name.toLowerCase()] || slugify(department.name);
+      return [slug, department.teachers.map((teacher) => [teacher.name, teacher.subject, teacher.qualification, teacher.experience])];
+    }));
+    if ($("#facultyCategoryGrid")) $("#facultyCategoryGrid").innerHTML = data.facultyCategories.map(([title, text, url, icon]) => `<a class="program-card faculty-category" href="${url}"><span class="icon">${escapeHtml(icon)}</span><h3>${escapeHtml(title)}</h3><p>${escapeHtml(text)}</p><strong>View faculty</strong></a>`).join("");
+    if ($("#facultyDetailGrid")) {
+      const key = document.body.dataset.facultyPage;
+      const teachers = data.facultyDetails[key] || [];
+      $("#facultyDetailGrid").innerHTML = teachers.map(([name, role, exp, subject]) => `<article class="faculty-card"><div class="avatar">${escapeHtml(name.split(" ").map((part) => part[0]).join("").slice(0, 2))}</div><h3>${escapeHtml(name)}</h3><p>${escapeHtml(role)}</p><small>${escapeHtml(exp)}</small><p><strong>${escapeHtml(subject)}</strong></p></article>`).join("");
+    }
+  } catch {}
 }
 
 function renderNotices() {
@@ -411,11 +576,399 @@ function renderNotices() {
     const matchesFilter = filter === "all" || category === filter || notice.category.en === filter;
     return isPublished && matchesSearch && matchesFilter;
   });
-  $("#noticeGrid").innerHTML = notices.map((notice) => `<article class="notice-card ${notice.pinned ? "pinned" : ""}"><small>${localized(notice.category)} &middot; ${notice.date}</small><h3>${localized(notice.title)}</h3><p>${notice.pinned ? "Pinned notice with language-aware PDF/image attachment support." : "Archive-ready notice with independent language publishing."}</p><button class="text-btn" onclick="window.print()">Print notice</button></article>`).join("");
+  $("#noticeGrid").innerHTML = notices.map((notice) => `<article class="notice-card ${notice.pinned ? "pinned" : ""}"><small>${escapeHtml(localized(notice.category))} &middot; ${escapeHtml(notice.date)}</small><h3>${escapeHtml(localized(notice.title))}</h3><p>${escapeHtml(localized(notice.body) || (notice.pinned ? "Pinned notice with language-aware PDF/image attachment support." : "Archive-ready notice with independent language publishing."))}</p><button class="text-btn" onclick="window.print()">Print notice</button></article>`).join("") || `<article class="notice-card"><h3>No notices found</h3><p>Please check another language or category.</p></article>`;
 }
 
 $("#noticeSearch")?.addEventListener("input", renderNotices);
 $("#noticeFilter")?.addEventListener("change", renderNotices);
+
+function slugify(value) {
+  const slug = String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return slug || `notice-${Date.now()}`;
+}
+
+function noticeAdminTemplate() {
+  return `<h3>Notice Management</h3>${languageTabs()}<p>Create, edit, schedule, pin, expire and publish multilingual notices. You are editing only the selected language tab.</p><div class="cms-notice-editor"><form id="noticeForm" class="cms-editor-grid"><input type="hidden" name="id"><label>Notice title<input name="title" required maxlength="240" placeholder="Admission notice"></label><label>Category<input name="category" required maxlength="120" placeholder="Admission"></label><label>Publish date<input name="publishAt" type="date" required></label><label>Status<select name="status"><option value="PUBLISHED">Published</option><option value="DRAFT">Draft</option><option value="SCHEDULED">Scheduled</option><option value="ARCHIVED">Archived</option></select></label><label class="check-row"><input name="pinned" type="checkbox"> Pin this notice</label><label class="wide">Notice details<textarea name="body" rows="5" placeholder="Write the full notice here."></textarea></label><div class="cms-actions wide"><button class="btn primary" type="submit">Save notice</button><button class="btn" type="button" id="noticeReset">New notice</button><span id="noticeAdminMessage" class="cms-message"></span></div></form><div class="cms-list" id="noticeAdminList"><article><span>Loading notices from CMS...</span><strong>Please wait</strong></article></div></div>`;
+}
+
+function noticeTranslationFor(notice, languageCode) {
+  const translation = (notice.translations || []).find((item) => item.language?.code === languageCode);
+  const fallback = (notice.translations || []).find((item) => item.language?.code === "en");
+  return translation || fallback || {};
+}
+
+function renderNoticeAdminList(notices) {
+  const list = $("#noticeAdminList");
+  if (!list) return;
+  if (!notices.length) {
+    list.innerHTML = `<article><span>No notices are saved yet.</span><strong>Create the first notice above</strong></article>`;
+    return;
+  }
+  list.innerHTML = notices.map((notice) => {
+    const translation = noticeTranslationFor(notice, currentLang);
+    const status = String(translation.status || "DRAFT").toLowerCase();
+    return `<article><span>${escapeHtml(translation.title || notice.title || "[Missing translation]")}<small>${escapeHtml(translation.category || notice.category || "General")} &middot; ${escapeHtml((translation.publishAt || notice.publishAt || "").slice(0, 10))}</small></span><strong>${notice.pinned ? "Pinned, " : ""}${escapeHtml(status)}</strong><button class="text-btn" type="button" data-edit-notice="${notice.id}">Edit</button><button class="text-btn danger" type="button" data-delete-notice="${notice.id}">Delete</button></article>`;
+  }).join("");
+}
+
+function resetNoticeForm() {
+  const form = $("#noticeForm");
+  if (!form) return;
+  form.reset();
+  form.elements.id.value = "";
+  form.elements.publishAt.value = new Date().toISOString().slice(0, 10);
+  form.elements.status.value = "PUBLISHED";
+  $("#noticeAdminMessage").textContent = "";
+}
+
+async function loadAdminNotices() {
+  try {
+    const payload = await cmsFetch("/api/admin/notices");
+    window.kssAdminNotices = payload.notices || [];
+    data.notices = window.kssAdminNotices.map(normalizeAdminNotice);
+    renderNoticeAdminList(window.kssAdminNotices);
+  } catch (error) {
+    $("#noticeAdminList").innerHTML = `<article><span>Could not load notices.</span><strong>${escapeHtml(error.message)}</strong></article>`;
+  }
+}
+
+function setupNoticeAdmin() {
+  resetNoticeForm();
+  loadAdminNotices();
+
+  $("#noticeReset")?.addEventListener("click", resetNoticeForm);
+
+  $("#noticeForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const message = $("#noticeAdminMessage");
+    const publishAt = form.elements.publishAt.value || new Date().toISOString().slice(0, 10);
+    const title = form.elements.title.value.trim();
+    const category = form.elements.category.value.trim();
+    const body = form.elements.body.value.trim();
+    const existing = (window.kssAdminNotices || []).find((notice) => notice.id === form.elements.id.value);
+    const fallback = existing ? noticeTranslationFor(existing, "en") : {};
+    const payload = {
+      title: fallback.title || title,
+      slug: existing?.slug || slugify(title),
+      body: fallback.body || body,
+      category: fallback.category || category,
+      pinned: form.elements.pinned.checked,
+      publishAt: new Date(publishAt).toISOString(),
+      translations: [{
+        languageCode: currentLang,
+        title,
+        body,
+        category,
+        status: form.elements.status.value,
+        publishAt: new Date(publishAt).toISOString()
+      }]
+    };
+
+    message.textContent = "Saving...";
+    try {
+      await cmsFetch(form.elements.id.value ? `/api/admin/notices/${form.elements.id.value}` : "/api/admin/notices", {
+        method: form.elements.id.value ? "PUT" : "POST",
+        body: JSON.stringify(payload)
+      });
+      message.textContent = "Saved.";
+      resetNoticeForm();
+      await loadAdminNotices();
+    } catch (error) {
+      message.textContent = error.message;
+    }
+  });
+
+  $("#noticeAdminList")?.addEventListener("click", async (event) => {
+    const editButton = event.target.closest("[data-edit-notice]");
+    const deleteButton = event.target.closest("[data-delete-notice]");
+    if (editButton) {
+      const notice = (window.kssAdminNotices || []).find((item) => item.id === editButton.dataset.editNotice);
+      if (!notice) return;
+      const translation = noticeTranslationFor(notice, currentLang);
+      const form = $("#noticeForm");
+      form.elements.id.value = notice.id;
+      form.elements.title.value = translation.title || notice.title || "";
+      form.elements.category.value = translation.category || notice.category || "";
+      form.elements.body.value = translation.body || notice.body || "";
+      form.elements.publishAt.value = (translation.publishAt || notice.publishAt || new Date().toISOString()).slice(0, 10);
+      form.elements.status.value = translation.status || "DRAFT";
+      form.elements.pinned.checked = Boolean(notice.pinned);
+      $("#noticeAdminMessage").textContent = `Editing ${currentLang.toUpperCase()} notice.`;
+    }
+    if (deleteButton) {
+      const ok = confirm("Delete this notice permanently?");
+      if (!ok) return;
+      try {
+        await cmsFetch(`/api/admin/notices/${deleteButton.dataset.deleteNotice}`, { method: "DELETE" });
+        await loadAdminNotices();
+      } catch (error) {
+        $("#noticeAdminMessage").textContent = error.message;
+      }
+    }
+  });
+}
+
+const adminState = {};
+
+function simpleEditorTemplate(kind, fields) {
+  return `<div class="cms-notice-editor"><form id="${kind}Form" class="cms-editor-grid">${fields}<div class="cms-actions wide"><button class="btn primary" type="submit">Save</button><button class="btn" type="reset">Clear</button><span id="${kind}Message" class="cms-message"></span></div></form><div class="cms-list" id="${kind}List"><article><span>Loading from CMS...</span><strong>Please wait</strong></article></div></div>`;
+}
+
+function setupContentAdmin() {
+  const keys = ["heroTitle", "heroSubtitle", "homeAboutTitle", "homeAboutP1", "homeAboutP2", "principalTitle", "principalBody", "footerSchool", "footerBody"];
+  $("#contentKeyList").innerHTML = keys.map((key) => `<button class="text-btn" type="button" data-content-key="${key}">${key}</button>`).join("");
+  $("#contentValue").value = t("heroTitle");
+  $("#contentKey").value = "heroTitle";
+  $("#contentKeyList").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-content-key]");
+    if (!button) return;
+    $("#contentKey").value = button.dataset.contentKey;
+    $("#contentValue").value = translations[currentLang]?.[button.dataset.contentKey] || "";
+  });
+  $("#contentForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const message = $("#contentMessage");
+    message.textContent = "Saving...";
+    try {
+      await cmsFetch("/api/admin/content/translation", {
+        method: "PUT",
+        body: JSON.stringify({
+          key: $("#contentKey").value.trim(),
+          languageCode: currentLang,
+          value: $("#contentValue").value,
+          status: $("#contentStatus").value
+        })
+      });
+      if (translations[currentLang]) translations[currentLang][$("#contentKey").value.trim()] = $("#contentValue").value;
+      applyLanguage();
+      message.textContent = "Saved.";
+    } catch (error) {
+      message.textContent = error.message;
+    }
+  });
+}
+
+async function setupMediaAdmin() {
+  async function loadMedia() {
+    const list = $("#mediaList");
+    try {
+      const payload = await cmsFetch("/api/admin/media");
+      adminState.media = payload.media || [];
+      list.innerHTML = adminState.media.map((item) => `<article><span>${item.type?.startsWith("image/") ? `<img src="${item.url}" alt="">` : ""}${escapeHtml(item.alt || item.publicId)}<small>${escapeHtml(item.type)} &middot; ${new Date(item.createdAt).toLocaleDateString()}</small></span><a class="text-btn" href="${item.url}" target="_blank" rel="noreferrer">Preview</a><button class="text-btn danger" type="button" data-delete-media="${item.id}">Delete</button></article>`).join("") || `<article><span>No files uploaded yet.</span><strong>Use upload above</strong></article>`;
+    } catch (error) {
+      list.innerHTML = `<article><span>Could not load media.</span><strong>${escapeHtml(error.message)}</strong></article>`;
+    }
+  }
+  $("#mediaForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const files = $("#mediaFiles").files;
+    if (!files.length) return;
+    const body = new FormData();
+    [...files].forEach((file) => body.append("files", file));
+    $("#mediaMessage").textContent = "Uploading...";
+    try {
+      await cmsFetch("/api/admin/media/upload", { method: "POST", body });
+      $("#mediaMessage").textContent = "Uploaded.";
+      $("#mediaForm").reset();
+      await loadMedia();
+    } catch (error) {
+      $("#mediaMessage").textContent = error.message;
+    }
+  });
+  $("#mediaList").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-delete-media]");
+    if (!button || !confirm("Delete this media file from CMS?")) return;
+    await cmsFetch(`/api/admin/media/${button.dataset.deleteMedia}`, { method: "DELETE" });
+    await loadMedia();
+  });
+  await loadMedia();
+}
+
+function eventPayload(form) {
+  const title = form.elements.title.value.trim();
+  return {
+    title,
+    slug: form.elements.slug.value.trim() || slugify(title),
+    body: form.elements.body.value.trim(),
+    category: form.elements.category.value.trim() || "Campus",
+    startsAt: new Date(form.elements.startsAt.value || new Date().toISOString().slice(0, 10)).toISOString()
+  };
+}
+
+async function setupEventsAdmin() {
+  async function loadEvents() {
+    const payload = await cmsFetch("/api/admin/events");
+    adminState.events = payload.events || [];
+    $("#eventAdminList").innerHTML = adminState.events.map((event) => `<article><span>${escapeHtml(event.title)}<small>${escapeHtml(event.category)} &middot; ${(event.startsAt || "").slice(0, 10)}</small></span><button class="text-btn" type="button" data-edit-event="${event.id}">Edit</button><button class="text-btn danger" type="button" data-delete-event="${event.id}">Delete</button></article>`).join("") || `<article><span>No events yet.</span><strong>Create one above</strong></article>`;
+  }
+  $("#eventForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    $("#eventMessage").textContent = "Saving...";
+    await cmsFetch(form.elements.id.value ? `/api/admin/events/${form.elements.id.value}` : "/api/admin/events", { method: form.elements.id.value ? "PUT" : "POST", body: JSON.stringify(eventPayload(form)) });
+    $("#eventMessage").textContent = "Saved.";
+    form.reset();
+    await loadEvents();
+  });
+  $("#eventAdminList").addEventListener("click", async (event) => {
+    const edit = event.target.closest("[data-edit-event]");
+    const del = event.target.closest("[data-delete-event]");
+    if (edit) {
+      const item = adminState.events.find((row) => row.id === edit.dataset.editEvent);
+      const form = $("#eventForm");
+      form.elements.id.value = item.id;
+      form.elements.title.value = item.title;
+      form.elements.slug.value = item.slug;
+      form.elements.category.value = item.category;
+      form.elements.startsAt.value = (item.startsAt || "").slice(0, 10);
+      form.elements.body.value = item.body;
+    }
+    if (del && confirm("Delete this event?")) {
+      await cmsFetch(`/api/admin/events/${del.dataset.deleteEvent}`, { method: "DELETE" });
+      await loadEvents();
+    }
+  });
+  await loadEvents();
+}
+
+async function setupFacultyAdmin() {
+  async function loadFaculty() {
+    const payload = await cmsFetch("/api/admin/faculty");
+    adminState.departments = payload.departments || [];
+    $("#teacherDepartment").innerHTML = adminState.departments.map((department) => `<option value="${department.id}">${escapeHtml(department.name)}</option>`).join("");
+    $("#facultyAdminList").innerHTML = adminState.departments.map((department) => `<article><span>${escapeHtml(department.name)}<small>${department.teachers.length} teachers</small></span><strong>${department.teachers.map((teacher) => escapeHtml(teacher.name)).join(", ") || "No teachers"}</strong></article>`).join("") || `<article><span>No departments yet.</span><strong>Add one above</strong></article>`;
+  }
+  $("#departmentForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await cmsFetch("/api/admin/faculty/departments", { method: "POST", body: JSON.stringify({ name: $("#departmentName").value.trim() }) });
+    event.currentTarget.reset();
+    await loadFaculty();
+  });
+  $("#teacherForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    await cmsFetch("/api/admin/faculty/teachers", {
+      method: "POST",
+      body: JSON.stringify({
+        name: form.elements.name.value.trim(),
+        qualification: form.elements.qualification.value.trim(),
+        experience: form.elements.experience.value.trim(),
+        subject: form.elements.subject.value.trim(),
+        email: form.elements.email.value.trim(),
+        photoUrl: form.elements.photoUrl.value.trim(),
+        departmentId: form.elements.departmentId.value
+      })
+    });
+    form.reset();
+    await loadFaculty();
+  });
+  await loadFaculty();
+}
+
+async function setupResultsAdmin() {
+  async function loadResults() {
+    const payload = await cmsFetch("/api/admin/results");
+    adminState.results = payload.results || [];
+    $("#resultAdminList").innerHTML = adminState.results.map((result) => `<article><span>${escapeHtml(result.studentName)}<small>${escapeHtml(result.studentId)} / ${escapeHtml(result.symbolNumber)} / ${escapeHtml(result.className)}</small></span><strong>GPA ${result.gpa} ${result.published ? "Published" : "Draft"}</strong><button class="text-btn danger" type="button" data-delete-result="${result.id}">Delete</button></article>`).join("") || `<article><span>No results yet.</span><strong>Add one above</strong></article>`;
+  }
+  $("#resultAdminForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    await cmsFetch("/api/admin/results", {
+      method: "POST",
+      body: JSON.stringify({
+        studentId: form.elements.studentId.value.trim(),
+        symbolNumber: form.elements.symbolNumber.value.trim(),
+        studentName: form.elements.studentName.value.trim(),
+        className: form.elements.className.value.trim(),
+        gpa: form.elements.gpa.value,
+        remarks: form.elements.remarks.value.trim(),
+        published: form.elements.published.checked
+      })
+    });
+    form.reset();
+    await loadResults();
+  });
+  $("#resultAdminList").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-delete-result]");
+    if (!button || !confirm("Delete this result?")) return;
+    await cmsFetch(`/api/admin/results/${button.dataset.deleteResult}`, { method: "DELETE" });
+    await loadResults();
+  });
+  await loadResults();
+}
+
+async function setupMenusAdmin() {
+  async function loadMenus() {
+    const payload = await cmsFetch("/api/admin/site/menus");
+    adminState.menus = payload.menus || [];
+    $("#menuSelect").innerHTML = adminState.menus.map((menu) => `<option value="${menu.id}">${escapeHtml(menu.key)} (${escapeHtml(menu.location)})</option>`).join("");
+    $("#menuAdminList").innerHTML = adminState.menus.flatMap((menu) => menu.items.map((item) => `<article><span>${escapeHtml(item.labelKey)}<small>${escapeHtml(item.href)}</small></span><strong>${item.enabled ? "Enabled" : "Hidden"}</strong><button class="text-btn danger" type="button" data-delete-menu-item="${item.id}">Delete</button></article>`)).join("") || `<article><span>No menu exists yet.</span><strong>Create a menu first</strong></article>`;
+  }
+  $("#menuCreateForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await cmsFetch("/api/admin/site/menus", { method: "POST", body: JSON.stringify({ key: $("#menuKey").value.trim(), location: $("#menuLocation").value.trim() }) });
+    event.currentTarget.reset();
+    await loadMenus();
+  });
+  $("#menuItemForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    await cmsFetch("/api/admin/site/menus/items", {
+      method: "POST",
+      body: JSON.stringify({
+        menuId: form.elements.menuId.value,
+        labelKey: form.elements.labelKey.value.trim(),
+        href: form.elements.href.value.trim(),
+        sortOrder: Number(form.elements.sortOrder.value || 0),
+        openInNewTab: form.elements.openInNewTab.checked,
+        enabled: form.elements.enabled.checked
+      })
+    });
+    form.reset();
+    await loadMenus();
+  });
+  $("#menuAdminList").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-delete-menu-item]");
+    if (!button || !confirm("Delete this menu item?")) return;
+    await cmsFetch(`/api/admin/site/menus/items/${button.dataset.deleteMenuItem}`, { method: "DELETE" });
+    await loadMenus();
+  });
+  await loadMenus();
+}
+
+function setupSeoAdmin() {
+  $("#seoForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    $("#seoMessage").textContent = "Saving...";
+    try {
+      await cmsFetch("/api/admin/seo/translation", {
+        method: "PUT",
+        body: JSON.stringify({
+          path: form.elements.path.value.trim(),
+          languageCode: currentLang,
+          title: form.elements.title.value.trim(),
+          description: form.elements.description.value.trim(),
+          keywords: form.elements.keywords.value.split(",").map((item) => item.trim()).filter(Boolean),
+          ogTitle: form.elements.ogTitle.value.trim(),
+          ogDescription: form.elements.ogDescription.value.trim(),
+          ogImage: form.elements.ogImage.value.trim() || undefined,
+          canonicalUrl: form.elements.canonicalUrl.value.trim() || undefined,
+          status: form.elements.status.value
+        })
+      });
+      $("#seoMessage").textContent = "Saved.";
+    } catch (error) {
+      $("#seoMessage").textContent = error.message;
+    }
+  });
+}
 
 function renderAdmin(tab) {
   const panel = $("#adminPanel");
@@ -423,13 +976,16 @@ function renderAdmin(tab) {
   const translationStatus = buildTranslationStatus();
   const templates = {
     dashboard: `<h3>Dashboard</h3>${languageTabs()}<div class="metric-grid"><div class="metric"><strong>24</strong><span>Live pages</span></div><div class="metric"><strong>5</strong><span>Pinned notices</span></div><div class="metric"><strong>${translationStatus.percent}%</strong><span>${currentLang.toUpperCase()} translated</span></div><div class="metric"><strong>30m</strong><span>Session timeout</span></div></div><div class="cms-list">${translationStatus.items.map(item => `<article><span>${item.area}</span><strong>${item.message}</strong></article>`).join("")}</div>`,
-    contentAdmin: `<h3>Universal Content Editing</h3>${languageTabs()}<p>Every heading, paragraph, button, link, contact detail, footer item, FAQ, announcement and SEO field is stored as a content item with revisions.</p><div class="cms-editor-grid"><label>Content key<input value="home.hero.title"></label><label>Language value<textarea rows="4">${t("heroTitle")}</textarea></label><label>Status<select><option>Draft</option><option selected>Published</option><option>Scheduled</option><option>Archived</option></select></label><div class="cms-actions"><button class="btn primary" type="button">Autosave Draft</button><button class="btn primary" type="button">Publish ${currentLang.toUpperCase()}</button></div></div>`,
+    contentAdmin: `<h3>Homepage/About Content</h3>${languageTabs()}<p>Edit the selected language only. These keys connect to the visible homepage/about text.</p><div class="cms-editor-grid"><label>Content key<input id="contentKey" value="heroTitle"></label><label>Status<select id="contentStatus"><option value="PUBLISHED">Published</option><option value="DRAFT">Draft</option><option value="SCHEDULED">Scheduled</option><option value="ARCHIVED">Archived</option></select></label><label class="wide">Text<textarea id="contentValue" rows="5"></textarea></label><div class="cms-actions wide"><button class="btn primary" id="contentSave" form="contentForm">Save Content</button><span id="contentMessage" class="cms-message"></span></div></div><form id="contentForm"></form><div class="cms-list" id="contentKeyList"></div>`,
     pagesAdmin: `<h3>Page Management</h3><p>Create, edit, duplicate, draft, schedule, publish and archive pages without changing source code.</p><div class="cms-list"><article><span>About homepage</span><strong>Published</strong></article><article><span>Academics</span><strong>Published</strong></article><article><span>Faculty category pages</span><strong>Published</strong></article><article><span>New draft page</span><strong>Draft</strong></article></div>`,
     sectionsAdmin: `<h3>Section Management</h3><p>Add, duplicate, hide, delete and reorder sections with drag-and-drop ordering in production.</p><div class="cms-list"><article><span>Hero</span><strong>Visible</strong></article><article><span>History timeline</span><strong>Visible</strong></article><article><span>Principal message</span><strong>Visible</strong></article><article><span>Temporary campaign</span><strong>Hidden</strong></article></div>`,
-    menusAdmin: `<h3>Menu Management</h3>${languageTabs()}<p>Navigation and footer labels are editable per language. Public admin links are not shown.</p><div class="cms-list">${Object.entries(translations[currentLang]?.nav || translations.en.nav).map(([key, value]) => `<article><span>${key}</span><strong>${value}</strong></article>`).join("")}</div>`,
-    noticesAdmin: `<h3>Notice Management</h3>${languageTabs()}<p>Create, edit, schedule, pin, expire, upload PDF and publish multilingual notices. Each language has its own draft, published, scheduled and archived state.</p><div class="cms-list">${data.notices.map(n => `<article><span>${localized(n.title) || "[Missing translation]"}</span><strong>${n.status?.[currentLang] || "draft"}</strong></article>`).join("")}</div>`,
-    mediaAdmin: `<h3>Media Library</h3>${languageTabs()}<p>For each image or file choose one shared asset for all languages, or upload separate language versions.</p><div class="cms-list"><article><span>Hero image</span><strong>${mediaLibrary.hero.mode}</strong></article><article><span>Prospectus PDF</span><strong>${localized(mediaLibrary.prospectus.file)}</strong></article><article><span>Alt text</span><strong>${localized(mediaLibrary.hero.alt)}</strong></article></div>`,
-    seoAdmin: `<h3>SEO Editor</h3>${languageTabs()}<p>Dynamic meta tags, Open Graph, canonical URLs, keywords, Twitter cards and JSON-LD schema per language.</p><div class="cms-list"><article><span>SEO title (${currentLang.toUpperCase()})</span><strong>${document.title}</strong></article><article><span>Canonical strategy</span><strong>/en/page and /np/page aliases</strong></article></div>`,
+    menusAdmin: `<h3>Menu Management</h3>${languageTabs()}<p>Create menus and menu items. Labels can be translated in Content using the same label key.</p><form id="menuCreateForm" class="cms-editor-grid"><label>Menu key<input id="menuKey" value="main"></label><label>Location<input id="menuLocation" value="header"></label><div class="cms-actions wide"><button class="btn primary" type="submit">Create Menu</button></div></form><form id="menuItemForm" class="cms-editor-grid"><label>Menu<select id="menuSelect" name="menuId"></select></label><label>Label key<input name="labelKey" placeholder="nav.notices"></label><label>URL<input name="href" placeholder="notices.html"></label><label>Order<input name="sortOrder" type="number" value="0"></label><label class="check-row"><input name="enabled" type="checkbox" checked> Enabled</label><label class="check-row"><input name="openInNewTab" type="checkbox"> Open in new tab</label><div class="cms-actions wide"><button class="btn primary" type="submit">Add Menu Item</button></div></form><div class="cms-list" id="menuAdminList"></div>`,
+    noticesAdmin: noticeAdminTemplate(),
+    mediaAdmin: `<h3>Media Library</h3>${languageTabs()}<p>Upload images and PDFs to Cloudinary, preview them, and delete unused files.</p><form id="mediaForm" class="cms-editor-grid"><label class="wide">Choose files<input id="mediaFiles" type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf"></label><div class="cms-actions wide"><button class="btn primary" type="submit">Upload</button><span id="mediaMessage" class="cms-message"></span></div></form><div class="cms-list media-list" id="mediaList"></div>`,
+    eventsAdmin: `<h3>Events</h3>${simpleEditorTemplate("event", `<input type="hidden" name="id"><label>Title<input name="title" required></label><label>Slug<input name="slug" placeholder="sports-week"></label><label>Category<input name="category" value="Campus"></label><label>Date<input name="startsAt" type="date" required></label><label class="wide">Details<textarea name="body" rows="4"></textarea></label>`).replace("eventList", "eventAdminList")}`,
+    facultyAdmin: `<h3>Faculty Pages</h3><p>Add departments such as Basic ECD, Basic Level, Science, Education, Humanities and Management, then add teachers under them.</p><form id="departmentForm" class="cms-editor-grid"><label>Department name<input id="departmentName" placeholder="Science"></label><div class="cms-actions"><button class="btn primary" type="submit">Add Department</button></div></form><form id="teacherForm" class="cms-editor-grid"><label>Name<input name="name" required></label><label>Department<select id="teacherDepartment" name="departmentId"></select></label><label>Subject<input name="subject"></label><label>Qualification<input name="qualification"></label><label>Experience<input name="experience"></label><label>Email<input name="email" type="email"></label><label class="wide">Photo URL<input name="photoUrl"></label><div class="cms-actions wide"><button class="btn primary" type="submit">Add Teacher</button></div></form><div class="cms-list" id="facultyAdminList"></div>`,
+    resultsAdmin: `<h3>Results</h3>${simpleEditorTemplate("resultAdmin", `<label>Student ID<input name="studentId" required></label><label>Symbol number<input name="symbolNumber" required></label><label>Student name<input name="studentName" required></label><label>Class<input name="className" required></label><label>GPA<input name="gpa" type="number" step="0.01" min="0" max="4" required></label><label>Remarks<input name="remarks" value="Passed"></label><label class="check-row"><input name="published" type="checkbox"> Published</label>`).replace("resultAdminList", "resultAdminList")}`,
+    seoAdmin: `<h3>SEO Editor</h3>${languageTabs()}<p>Save page title, descriptions and Open Graph details separately for each language.</p><form id="seoForm" class="cms-editor-grid"><label>Page path<input name="path" value="/index.html"></label><label>Status<select name="status"><option value="PUBLISHED">Published</option><option value="DRAFT">Draft</option><option value="SCHEDULED">Scheduled</option><option value="ARCHIVED">Archived</option></select></label><label class="wide">SEO title<input name="title" value="${escapeHtml(document.title)}"></label><label class="wide">Meta description<textarea name="description" rows="3"></textarea></label><label class="wide">Keywords, separated by comma<input name="keywords"></label><label>Open Graph title<input name="ogTitle"></label><label>Open Graph image URL<input name="ogImage"></label><label class="wide">Open Graph description<textarea name="ogDescription" rows="2"></textarea></label><label class="wide">Canonical URL<input name="canonicalUrl"></label><div class="cms-actions wide"><button class="btn primary" type="submit">Save SEO</button><span id="seoMessage" class="cms-message"></span></div></form>`,
     rolesAdmin: `<h3>Roles and Permissions</h3><p>JWT auth with refresh tokens, secure cookies, RBAC and audit logs.</p><div class="cms-list"><article><span>Super Admin</span><strong>All permissions</strong></article><article><span>Editor</span><strong>Content only</strong></article><article><span>Teacher</span><strong>Results and downloads</strong></article></div>`,
     usersAdmin: `<h3>User Management</h3><p>Owner, Administrator, Editor and Viewer roles have configurable permissions.</p><div class="cms-list"><article><span>Owner</span><strong>Manage billing, users, content, backups</strong></article><article><span>Administrator</span><strong>Manage all content and users</strong></article><article><span>Editor</span><strong>Edit and publish assigned content</strong></article><article><span>Viewer</span><strong>Read-only dashboard access</strong></article></div>`,
     auditAdmin: `<h3>Audit Log</h3><p>Production records login attempts, logouts, content edits, image replacements, uploads, password changes and user changes.</p><div class="cms-list">${(JSON.parse(localStorage.getItem("kss-cms-audit") || "[]").slice(0, 5).map(log => `<article><span>${log.action}</span><strong>${log.at}</strong></article>`).join("") || `<article><span>No local preview audit records yet</span><strong>Ready</strong></article>`)}</div>`,
@@ -437,6 +993,14 @@ function renderAdmin(tab) {
     securityAdmin: `<h3>Security Controls</h3><p>Production uses Argon2 or bcrypt hashing, HTTP-only secure cookies, CSRF tokens, rate limits, lockout, 2FA, upload validation, security headers and protected admin APIs.</p><div class="cms-list"><article><span>Admin route</span><strong>Hidden and noindex</strong></article><article><span>Login lockout</span><strong>5 failed attempts</strong></article><article><span>Session timeout</span><strong>30 minutes</strong></article><article><span>OWASP controls</span><strong>Enabled in deployment blueprint</strong></article></div>`
   };
   panel.innerHTML = templates[tab];
+  if (tab === "noticesAdmin") setupNoticeAdmin();
+  if (tab === "contentAdmin") setupContentAdmin();
+  if (tab === "mediaAdmin") setupMediaAdmin();
+  if (tab === "eventsAdmin") setupEventsAdmin();
+  if (tab === "facultyAdmin") setupFacultyAdmin();
+  if (tab === "resultsAdmin") setupResultsAdmin();
+  if (tab === "menusAdmin") setupMenusAdmin();
+  if (tab === "seoAdmin") setupSeoAdmin();
 }
 
 function languageTabs() {
@@ -475,7 +1039,9 @@ document.addEventListener("click", (event) => {
   if (!tab) return;
   currentLang = tab.dataset.lang;
   localStorage.setItem("kss-language", currentLang);
+  noticesLoadedFromCms = false;
   applyLanguage();
+  if ($("#noticeGrid")) loadPublicNotices();
   const activeAdmin = $(".admin-tab.active")?.dataset.admin || "dashboard";
   renderAdmin(activeAdmin);
 });
@@ -483,7 +1049,13 @@ document.addEventListener("click", (event) => {
 $("#resultForm")?.addEventListener("submit", (event) => {
   event.preventDefault();
   const value = $("#resultInput").value.trim() || "KSS-2083-001";
-  $("#resultCard").innerHTML = `<small>${value}</small><h3>Passed with distinction</h3><p>GPA 3.72. Printable mark sheet and guardian copy available in the production portal.</p>`;
+  $("#resultCard").innerHTML = `<small>${escapeHtml(value)}</small><h3>Checking result...</h3><p>Please wait.</p>`;
+  cmsFetch(`/api/public/results/lookup?q=${encodeURIComponent(value)}`).then((payload) => {
+    const result = payload.result;
+    $("#resultCard").innerHTML = `<small>${escapeHtml(result.studentId)} / ${escapeHtml(result.symbolNumber)}</small><h3>${escapeHtml(result.studentName)} - GPA ${escapeHtml(result.gpa)}</h3><p>${escapeHtml(result.className)}. ${escapeHtml(result.remarks)}</p>`;
+  }).catch(() => {
+    $("#resultCard").innerHTML = `<small>${escapeHtml(value)}</small><h3>Result not found</h3><p>Please check the Student ID or Symbol Number and try again.</p>`;
+  });
 });
 
 $("#apply")?.addEventListener("submit", (event) => {

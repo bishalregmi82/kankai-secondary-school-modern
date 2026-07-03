@@ -41,6 +41,8 @@ export async function createAdminSession(res: Response, userId: string, ip?: str
     maxAge: sessionMs,
     path: "/"
   });
+
+  return rawCsrf;
 }
 
 export async function destroyAdminSession(req: Request, res: Response) {
