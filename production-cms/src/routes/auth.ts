@@ -55,6 +55,17 @@ authRouter.post("/login", loginLimiter, async (req, res) => {
   res.json({ ok: true });
 });
 
+authRouter.get("/me", requireAdmin, async (_req, res) => {
+  res.json({
+    ok: true,
+    user: {
+      email: res.locals.user.email,
+      name: res.locals.user.name,
+      role: res.locals.user.role.name
+    }
+  });
+});
+
 authRouter.post("/logout", requireAdmin, async (req, res) => {
   await prisma.auditLog.create({ data: { userId: res.locals.user.id, action: "logout", entity: "AdminSession", ipAddress: req.ip } });
   await destroyAdminSession(req, res);

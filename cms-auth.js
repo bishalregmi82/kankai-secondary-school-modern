@@ -1,4 +1,5 @@
 (function () {
+  const CMS_API_URL = window.KSS_CMS_API_URL || "https://kankai-school-cms.onrender.com";
   const SESSION_KEY = "kss-cms-session";
   const LOCK_KEY = "kss-cms-lock";
   const ATTEMPT_KEY = "kss-cms-attempts";
@@ -18,9 +19,10 @@
     }
   }
 
-  function writeSession() {
+  function writeSession(user) {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      role: "Owner",
+      role: user?.role || "Owner",
+      email: user?.email || "vishalregmi82@gmail.com",
       issuedAt: now(),
       expiresAt: now() + SESSION_MS,
       csrf: crypto.randomUUID ? crypto.randomUUID() : String(now())
@@ -48,6 +50,10 @@
     window.kssCmsAuth = {
       logout() {
         audit("logout", { user: "vishalregmi82@gmail.com" });
+        fetch(`${CMS_API_URL}/api/auth/logout`, {
+          method: "POST",
+          credentials: "include"
+        }).catch(() => {});
         sessionStorage.removeItem(SESSION_KEY);
         location.replace("kss-secure-cms-gate-83.html");
       },
@@ -68,20 +74,43 @@
       return;
     }
 
-    form.addEventListener("submit", (event) => {
+    form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const email = form.email.value.trim().toLowerCase();
       const password = form.password.value;
       const otp = form.otp.value.trim();
       const attempts = Number(localStorage.getItem(ATTEMPT_KEY) || "0");
+      const button = form.querySelector("button");
 
-      if (email === "vishalregmi82@gmail.com" && password === "ChangeMe!2083" && (!otp || otp === "123456")) {
+      button.disabled = true;
+      message.textContent = "Signing in...";
+
+      try {
+        const response = await fetch(`${CMS_API_URL}/api/auth/login`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email,
+            password,
+            twoFactorCode: otp || undefined
+          })
+        });
+
+        if (!response.ok) throw new Error("Invalid login details.");
+
+        const profile = await fetch(`${CMS_API_URL}/api/auth/me`, {
+          credentials: "include"
+        }).then((res) => res.ok ? res.json() : null).catch(() => null);
+
         sessionStorage.clear();
         localStorage.removeItem(ATTEMPT_KEY);
-        writeSession();
+        writeSession(profile?.user);
         audit("login_success", { user: email });
         location.replace("admin.html");
         return;
+      } catch {
+        button.disabled = false;
       }
 
       const nextAttempts = attempts + 1;
@@ -90,7 +119,7 @@
       if (nextAttempts >= 5) {
         localStorage.setItem(LOCK_KEY, JSON.stringify({ until: now() + LOCK_MS }));
         message.textContent = "Too many attempts. Try again later.";
-        form.querySelector("button").disabled = true;
+        button.disabled = true;
       } else {
         message.textContent = "Invalid login details.";
       }

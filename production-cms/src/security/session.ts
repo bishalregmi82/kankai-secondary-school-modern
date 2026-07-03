@@ -28,7 +28,7 @@ export async function createAdminSession(res: Response, userId: string, ip?: str
   res.cookie(cookieName, rawSession, {
     httpOnly: true,
     secure: true,
-    sameSite: "lax",
+    sameSite: "none",
     signed: true,
     maxAge: sessionMs,
     path: "/"
@@ -37,7 +37,7 @@ export async function createAdminSession(res: Response, userId: string, ip?: str
   res.cookie(process.env.CSRF_COOKIE_NAME || "kss_csrf", rawCsrf, {
     httpOnly: false,
     secure: true,
-    sameSite: "lax",
+    sameSite: "none",
     maxAge: sessionMs,
     path: "/"
   });
@@ -51,8 +51,8 @@ export async function destroyAdminSession(req: Request, res: Response) {
       data: { revokedAt: new Date() }
     });
   }
-  res.clearCookie(cookieName, { path: "/" });
-  res.clearCookie(process.env.CSRF_COOKIE_NAME || "kss_csrf", { path: "/" });
+  res.clearCookie(cookieName, { path: "/", secure: true, sameSite: "none" });
+  res.clearCookie(process.env.CSRF_COOKIE_NAME || "kss_csrf", { path: "/", secure: true, sameSite: "none" });
 }
 
 export async function requireAdmin(req: Request, res: Response, next: NextFunction) {

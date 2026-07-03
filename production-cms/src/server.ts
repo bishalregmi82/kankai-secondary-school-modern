@@ -17,6 +17,25 @@ const app = express();
 
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
+
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || process.env.PUBLIC_SITE_ORIGIN || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use((req, res, next) => {
+  const origin = req.header("origin");
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+    res.header("Vary", "Origin");
+    res.header("Access-Control-Allow-Credentials", "true");
+    res.header("Access-Control-Allow-Headers", "Content-Type, x-csrf-token");
+    res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  }
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser(process.env.SESSION_SECRET));
 app.use(securityMiddleware);

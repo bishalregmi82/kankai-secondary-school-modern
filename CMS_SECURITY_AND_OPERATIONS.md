@@ -36,19 +36,17 @@ This file explains the CMS and security setup in plain language.
   - Public admin links were removed.
   - Visitors no longer see admin access in the website navigation or footer.
 
-## Preview Login
+## Admin Login
 
 Open this hidden local file:
 
 `kss-secure-cms-gate-83.html`
 
-Preview credentials:
+Admin email:
 
 - Email: `vishalregmi82@gmail.com`
-- Password: `ChangeMe!2083`
-- Optional 2FA code: `123456`
 
-This is only a local preview. For a real deployment, change the password immediately and use server-side authentication.
+Use the private `ADMIN_PASSWORD` saved in Render. Do not write the real password in this file or commit it to GitHub.
 
 ## How The CMS Works
 
