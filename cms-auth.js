@@ -1,10 +1,7 @@
 (function () {
   const CMS_API_URL = window.KSS_CMS_API_URL || "https://kankai-school-cms.onrender.com";
   const SESSION_KEY = "kss-cms-session";
-  const LOCK_KEY = "kss-cms-lock";
-  const ATTEMPT_KEY = "kss-cms-attempts";
   const SESSION_MS = 30 * 60 * 1000;
-  const LOCK_MS = 5 * 60 * 1000;
   const path = location.pathname.slice(location.pathname.lastIndexOf("/") + 1);
 
   function now() {
@@ -83,19 +80,11 @@
       field.addEventListener("pointerdown", () => field.removeAttribute("readonly"));
       field.addEventListener("keydown", () => field.removeAttribute("readonly"));
     });
-    const lock = readJson(LOCK_KEY);
-    if (lock?.until > now()) {
-      message.textContent = "Too many attempts. Try again later.";
-      form.querySelector("button").disabled = true;
-      return;
-    }
-
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const email = form.schoolAccessId.value.trim().toLowerCase();
       const password = form.schoolAccessSecret.value;
       const otp = form.schoolAccessCode.value.trim();
-      const attempts = Number(localStorage.getItem(ATTEMPT_KEY) || "0");
       const button = form.querySelector("button");
 
       button.disabled = true;
@@ -120,7 +109,6 @@
         }).then((res) => res.ok ? res.json() : null).catch(() => null);
 
         sessionStorage.clear();
-        localStorage.removeItem(ATTEMPT_KEY);
         writeSession(profile?.user);
         audit("login_success", { user: email });
         location.replace("admin.html");
@@ -128,17 +116,8 @@
       } catch {
         button.disabled = false;
       }
-
-      const nextAttempts = attempts + 1;
-      localStorage.setItem(ATTEMPT_KEY, String(nextAttempts));
       audit("login_failed", { user: email || "unknown" });
-      if (nextAttempts >= 5) {
-        localStorage.setItem(LOCK_KEY, JSON.stringify({ until: now() + LOCK_MS }));
-        message.textContent = "Too many attempts. Try again later.";
-        button.disabled = true;
-      } else {
-        message.textContent = "Invalid login details.";
-      }
+      message.textContent = "Invalid login details.";
     });
   });
 })();
