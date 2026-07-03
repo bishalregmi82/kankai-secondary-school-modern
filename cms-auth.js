@@ -47,7 +47,7 @@
     document.documentElement.classList.add("cms-authenticated");
     window.kssCmsAuth = {
       logout() {
-        audit("logout", { user: "owner@kankaiss.edu.np" });
+        audit("logout", { user: "vishalregmi82@gmail.com" });
         sessionStorage.removeItem(SESSION_KEY);
         location.replace("kss-secure-cms-gate-83.html");
       },
@@ -75,7 +75,7 @@
       const otp = form.otp.value.trim();
       const attempts = Number(localStorage.getItem(ATTEMPT_KEY) || "0");
 
-      if (email === "owner@kankaiss.edu.np" && password === "ChangeMe!2083" && (!otp || otp === "123456")) {
+      if (email === "vishalregmi82@gmail.com" && password === "ChangeMe!2083" && (!otp || otp === "123456")) {
         sessionStorage.clear();
         localStorage.removeItem(ATTEMPT_KEY);
         writeSession();

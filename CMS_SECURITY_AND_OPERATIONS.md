@@ -44,7 +44,7 @@ Open this hidden local file:
 
 Preview credentials:
 
-- Email: `owner@kankaiss.edu.np`
+- Email: `vishalregmi82@gmail.com`
 - Password: `ChangeMe!2083`
 - Optional 2FA code: `123456`
 

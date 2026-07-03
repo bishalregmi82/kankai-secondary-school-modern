@@ -25,7 +25,7 @@ for (const role of roles) {
 }
 
 const ownerRole = await prisma.role.findUniqueOrThrow({ where: { name: "Owner" } });
-const adminEmail = process.env.ADMIN_EMAIL || "owner@kankaiss.edu.np";
+const adminEmail = process.env.ADMIN_EMAIL || "vishalregmi82@gmail.com";
 const adminPassword = process.env.ADMIN_PASSWORD;
 
 if (!adminPassword || adminPassword.length < 12) {
