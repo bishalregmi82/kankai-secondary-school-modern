@@ -16,13 +16,13 @@
     }
   }
 
-  function writeSession(user) {
+  function writeSession(user, csrfToken) {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
       role: user?.role || "Owner",
       email: user?.email || "admin",
       issuedAt: now(),
       expiresAt: now() + SESSION_MS,
-      csrf: crypto.randomUUID ? crypto.randomUUID() : String(now())
+      csrf: csrfToken || ""
     }));
   }
 
@@ -55,7 +55,11 @@
         location.replace("kss-secure-cms-gate-83.html");
       },
       audit,
-      session: readJson(SESSION_KEY)
+      session: readJson(SESSION_KEY),
+      csrf() {
+        return readJson(SESSION_KEY)?.csrf || "";
+      },
+      apiUrl: CMS_API_URL
     };
   }
 
@@ -102,6 +106,7 @@
           })
         });
 
+        const loginResult = await response.json().catch(() => null);
         if (!response.ok) throw new Error("Invalid login details.");
 
         const profile = await fetch(`${CMS_API_URL}/api/auth/me`, {
@@ -109,7 +114,7 @@
         }).then((res) => res.ok ? res.json() : null).catch(() => null);
 
         sessionStorage.clear();
-        writeSession(profile?.user);
+        writeSession(profile?.user || { email }, loginResult?.csrfToken);
         audit("login_success", { user: email });
         location.replace("admin.html");
         return;
