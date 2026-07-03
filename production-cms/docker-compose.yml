@@ -1,0 +1,27 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: kankai_cms
+      POSTGRES_USER: cms_user
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  cms-api:
+    build: .
+    env_file: .env
+    depends_on:
+      - postgres
+    ports:
+      - "8080:8080"
+    volumes:
+      - cms_uploads:/app/uploads
+      - cms_backups:/app/backups
+
+volumes:
+  postgres_data:
+  cms_uploads:
+  cms_backups:

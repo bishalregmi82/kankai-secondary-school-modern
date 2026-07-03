@@ -1,0 +1,39 @@
+import { prisma } from "./db.js";
+import { hashPassword } from "./security/password.js";
+
+const roles = [
+  { name: "Owner", permissions: [["manage", "all"]] },
+  { name: "Administrator", permissions: [["create", "page"], ["update", "page"], ["delete", "page"], ["create", "section"], ["update", "section"], ["delete", "section"], ["create", "menu"], ["update", "menu"], ["update", "content"], ["create", "media"], ["delete", "media"], ["create", "backup"], ["restore", "backup"], ["read", "content"], ["read", "page"], ["read", "notice"], ["create", "notice"], ["update", "notice"], ["delete", "notice"], ["read", "gallery"], ["create", "gallery"], ["delete", "gallery"], ["read", "contact"], ["update", "contact"], ["read", "seo"], ["update", "seo"], ["read", "user"], ["create", "user"], ["update", "user"]] },
+  { name: "Editor", permissions: [["update", "content"], ["create", "media"], ["read", "content"], ["read", "page"]] },
+  { name: "Viewer", permissions: [["read", "content"], ["read", "page"]] }
+];
+
+for (const role of roles) {
+  await prisma.role.upsert({
+    where: { name: role.name },
+    create: {
+      name: role.name,
+      permissions: {
+        connectOrCreate: role.permissions.map(([action, subject]) => ({
+          where: { action_subject: { action, subject } },
+          create: { action, subject }
+        }))
+      }
+    },
+    update: {}
+  });
+}
+
+const ownerRole = await prisma.role.findUniqueOrThrow({ where: { name: "Owner" } });
+await prisma.user.upsert({
+  where: { email: "owner@kankaiss.edu.np" },
+  create: {
+    email: "owner@kankaiss.edu.np",
+    name: "Kankai Owner",
+    passwordHash: await hashPassword("ChangeMe!2083"),
+    roleId: ownerRole.id
+  },
+  update: {}
+});
+
+console.log("Seeded CMS roles, permissions and owner account.");

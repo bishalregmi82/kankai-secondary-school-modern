@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>Secure CMS Login | Kankai Secondary School</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="login-page">
+  <main class="login-shell" id="main">
+    <form class="form-card login-card" id="adminLogin" autocomplete="off">
+      <span class="brand-mark">K</span>
+      <h1>Secure CMS Login</h1>
+      <p>This hidden route is not linked from the public website and is marked noindex.</p>
+      <label>Email<input required type="email" name="email" autocomplete="username" value="owner@kankaiss.edu.np"></label>
+      <label>Password<input required type="password" name="password" autocomplete="current-password" value="ChangeMe!2083"></label>
+      <label>2FA code <small>Optional preview code: 123456</small><input name="otp" inputmode="numeric" autocomplete="one-time-code"></label>
+      <button class="btn primary" type="submit">Sign in</button>
+      <p class="form-note" id="loginMessage" role="status"></p>
+    </form>
+  </main>
+  <script src="cms-auth.js"></script>
+</body>
+</html>

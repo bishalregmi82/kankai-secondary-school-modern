@@ -1,0 +1,7 @@
+User-agent: *
+Disallow: /admin.html
+Disallow: /kss-secure-cms-gate-83.html
+Disallow: /api/
+Disallow: /production-cms/
+
+Sitemap: https://kankaiss.edu.np/sitemap.xml
