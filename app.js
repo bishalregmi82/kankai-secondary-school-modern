@@ -215,6 +215,14 @@ const mediaLibrary = {
   }
 };
 
+const defaultMediaSlots = {
+  heroImage: "",
+  logoImage: "",
+  principalPhoto: "",
+  galleryImages: []
+};
+let mediaSlots = { ...defaultMediaSlots };
+
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
@@ -360,8 +368,18 @@ function applyLanguage() {
   $("#typing") && ($("#typing").textContent = t("heroSubtitle"));
   const heroMedia = $(".hero-media");
   if (heroMedia) {
-    heroMedia.style.backgroundImage = `url("${localized(mediaLibrary.hero.image)}")`;
+    heroMedia.style.backgroundImage = `url("${mediaSlots.heroImage || localized(mediaLibrary.hero.image)}")`;
     heroMedia.setAttribute("aria-label", localized(mediaLibrary.hero.alt));
+  }
+  const brandMark = $(".brand-mark");
+  if (brandMark && mediaSlots.logoImage) {
+    brandMark.classList.add("has-image");
+    brandMark.innerHTML = `<img src="${escapeHtml(mediaSlots.logoImage)}" alt="Kankai Secondary School logo">`;
+  }
+  const principalPhoto = $(".principal-card img");
+  if (principalPhoto && mediaSlots.principalPhoto) {
+    principalPhoto.src = mediaSlots.principalPhoto;
+    principalPhoto.alt = "Principal photo";
   }
   const aboutTitle = $("#about .copy h2");
   if (aboutTitle) aboutTitle.textContent = t("homeAboutTitle");
@@ -409,6 +427,7 @@ function render() {
   applyLanguage();
   loadPublicContent();
   loadPublicSeo();
+  loadPublicMediaSlots();
   if ($("#timeline")) {
     $("#timeline").innerHTML = data.timeline.map(([year, text]) => `<article><strong>${year}</strong><p>${text}</p></article>`).join("");
   }
@@ -440,7 +459,8 @@ function render() {
     $("#facilityGrid").innerHTML = data.facilities.map(([title, text, icon]) => `<article class="facility-card"><span class="icon">${icon}</span><h3>${title}</h3><p>${text}</p></article>`).join("");
   }
   if ($("#galleryGrid")) {
-    $("#galleryGrid").innerHTML = data.gallery.map(([title, img]) => `<a class="gallery-item" href="${img}" target="_blank" rel="noreferrer"><img src="${img}" alt="${title}"><span>${title}</span></a>`).join("");
+    const galleryItems = mediaSlots.galleryImages?.length ? mediaSlots.galleryImages.map((item) => [item.title, item.url]) : data.gallery;
+    $("#galleryGrid").innerHTML = galleryItems.map(([title, img]) => `<a class="gallery-item" href="${img}" target="_blank" rel="noreferrer"><img src="${img}" alt="${escapeHtml(title)}"><span>${escapeHtml(title)}</span></a>`).join("");
   }
   if ($("#adminPanel")) renderAdmin("dashboard");
 }
@@ -521,6 +541,18 @@ async function loadPublicSeo() {
       document.head.appendChild(meta);
     }
     meta.setAttribute("content", payload.seo.description || "");
+  } catch {}
+}
+
+async function loadPublicMediaSlots() {
+  try {
+    const payload = await cmsFetch("/api/public/media/slots");
+    mediaSlots = { ...defaultMediaSlots, ...(payload.slots || {}) };
+    applyLanguage();
+    if ($("#galleryGrid")) {
+      const galleryItems = mediaSlots.galleryImages?.length ? mediaSlots.galleryImages.map((item) => [item.title, item.url]) : data.gallery;
+      $("#galleryGrid").innerHTML = galleryItems.map(([title, img]) => `<a class="gallery-item" href="${img}" target="_blank" rel="noreferrer"><img src="${img}" alt="${escapeHtml(title)}"><span>${escapeHtml(title)}</span></a>`).join("");
+    }
   } catch {}
 }
 
@@ -754,12 +786,54 @@ function setupContentAdmin() {
 }
 
 async function setupMediaAdmin() {
+  function imageOptions(selectedUrl = "") {
+    const images = (adminState.media || []).filter((item) => item.type?.startsWith("image/"));
+    return `<option value="">Use default image</option>${images.map((item) => `<option value="${escapeHtml(item.url)}" ${item.url === selectedUrl ? "selected" : ""}>${escapeHtml(item.alt || item.publicId)}</option>`).join("")}`;
+  }
+
+  function renderMediaSlots() {
+    $("#heroImageSlot").innerHTML = imageOptions(mediaSlots.heroImage);
+    $("#logoImageSlot").innerHTML = imageOptions(mediaSlots.logoImage);
+    $("#principalPhotoSlot").innerHTML = imageOptions(mediaSlots.principalPhoto);
+    $("#galleryImageSlot").innerHTML = imageOptions();
+    $("#gallerySlotList").innerHTML = (mediaSlots.galleryImages || []).map((item, index) => `<article><span><img src="${escapeHtml(item.url)}" alt="">${escapeHtml(item.title)}<small>${escapeHtml(item.url)}</small></span><button class="text-btn danger" type="button" data-remove-gallery-slot="${index}">Remove</button></article>`).join("") || `<article><span>No gallery slot images yet.</span><strong>Add from uploaded media</strong></article>`;
+  }
+
+  async function loadSlots() {
+    try {
+      const payload = await cmsFetch("/api/admin/media/slots");
+      mediaSlots = { ...defaultMediaSlots, ...(payload.slots || {}) };
+      renderMediaSlots();
+    } catch (error) {
+      $("#mediaSlotMessage").textContent = error.message;
+    }
+  }
+
+  async function saveSlots() {
+    $("#mediaSlotMessage").textContent = "Saving slots...";
+    const payload = {
+      heroImage: $("#heroImageSlot").value,
+      logoImage: $("#logoImageSlot").value,
+      principalPhoto: $("#principalPhotoSlot").value,
+      galleryImages: mediaSlots.galleryImages || []
+    };
+    const result = await cmsFetch("/api/admin/media/slots", {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    });
+    mediaSlots = { ...defaultMediaSlots, ...(result.slots || {}) };
+    applyLanguage();
+    renderMediaSlots();
+    $("#mediaSlotMessage").textContent = "Image slots saved.";
+  }
+
   async function loadMedia() {
     const list = $("#mediaList");
     try {
       const payload = await cmsFetch("/api/admin/media");
       adminState.media = payload.media || [];
       list.innerHTML = adminState.media.map((item) => `<article><span>${item.type?.startsWith("image/") ? `<img src="${item.url}" alt="">` : ""}${escapeHtml(item.alt || item.publicId)}<small>${escapeHtml(item.type)} &middot; ${new Date(item.createdAt).toLocaleDateString()}</small></span><a class="text-btn" href="${item.url}" target="_blank" rel="noreferrer">Preview</a><button class="text-btn danger" type="button" data-delete-media="${item.id}">Delete</button></article>`).join("") || `<article><span>No files uploaded yet.</span><strong>Use upload above</strong></article>`;
+      renderMediaSlots();
     } catch (error) {
       list.innerHTML = `<article><span>Could not load media.</span><strong>${escapeHtml(error.message)}</strong></article>`;
     }
@@ -786,6 +860,29 @@ async function setupMediaAdmin() {
     await cmsFetch(`/api/admin/media/${button.dataset.deleteMedia}`, { method: "DELETE" });
     await loadMedia();
   });
+  $("#mediaSlotsForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await saveSlots();
+    } catch (error) {
+      $("#mediaSlotMessage").textContent = error.message;
+    }
+  });
+  $("#addGallerySlot").addEventListener("click", () => {
+    const url = $("#galleryImageSlot").value;
+    if (!url) return;
+    const selected = (adminState.media || []).find((item) => item.url === url);
+    mediaSlots.galleryImages = [...(mediaSlots.galleryImages || []), { title: $("#galleryImageTitle").value.trim() || selected?.alt || "Gallery image", url }];
+    $("#galleryImageTitle").value = "";
+    renderMediaSlots();
+  });
+  $("#gallerySlotList").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-gallery-slot]");
+    if (!button) return;
+    mediaSlots.galleryImages = (mediaSlots.galleryImages || []).filter((_, index) => index !== Number(button.dataset.removeGallerySlot));
+    renderMediaSlots();
+  });
+  await loadSlots();
   await loadMedia();
 }
 
@@ -981,7 +1078,7 @@ function renderAdmin(tab) {
     sectionsAdmin: `<h3>Section Management</h3><p>Add, duplicate, hide, delete and reorder sections with drag-and-drop ordering in production.</p><div class="cms-list"><article><span>Hero</span><strong>Visible</strong></article><article><span>History timeline</span><strong>Visible</strong></article><article><span>Principal message</span><strong>Visible</strong></article><article><span>Temporary campaign</span><strong>Hidden</strong></article></div>`,
     menusAdmin: `<h3>Menu Management</h3>${languageTabs()}<p>Create menus and menu items. Labels can be translated in Content using the same label key.</p><form id="menuCreateForm" class="cms-editor-grid"><label>Menu key<input id="menuKey" value="main"></label><label>Location<input id="menuLocation" value="header"></label><div class="cms-actions wide"><button class="btn primary" type="submit">Create Menu</button></div></form><form id="menuItemForm" class="cms-editor-grid"><label>Menu<select id="menuSelect" name="menuId"></select></label><label>Label key<input name="labelKey" placeholder="nav.notices"></label><label>URL<input name="href" placeholder="notices.html"></label><label>Order<input name="sortOrder" type="number" value="0"></label><label class="check-row"><input name="enabled" type="checkbox" checked> Enabled</label><label class="check-row"><input name="openInNewTab" type="checkbox"> Open in new tab</label><div class="cms-actions wide"><button class="btn primary" type="submit">Add Menu Item</button></div></form><div class="cms-list" id="menuAdminList"></div>`,
     noticesAdmin: noticeAdminTemplate(),
-    mediaAdmin: `<h3>Media Library</h3>${languageTabs()}<p>Upload images and PDFs to Cloudinary, preview them, and delete unused files.</p><form id="mediaForm" class="cms-editor-grid"><label class="wide">Choose files<input id="mediaFiles" type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf"></label><div class="cms-actions wide"><button class="btn primary" type="submit">Upload</button><span id="mediaMessage" class="cms-message"></span></div></form><div class="cms-list media-list" id="mediaList"></div>`,
+    mediaAdmin: `<h3>Media Library</h3>${languageTabs()}<p>Upload images and PDFs to Cloudinary, then assign uploaded images to visible website slots.</p><form id="mediaForm" class="cms-editor-grid"><label class="wide">Choose files<input id="mediaFiles" type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf"></label><div class="cms-actions wide"><button class="btn primary" type="submit">Upload</button><span id="mediaMessage" class="cms-message"></span></div></form><form id="mediaSlotsForm" class="cms-editor-grid media-slots"><label>Hero Image<select id="heroImageSlot"></select></label><label>Logo<select id="logoImageSlot"></select></label><label>Principal Photo<select id="principalPhotoSlot"></select></label><div class="cms-actions wide"><button class="btn primary" type="submit">Save Image Slots</button><span id="mediaSlotMessage" class="cms-message"></span></div><label>Gallery Image<select id="galleryImageSlot"></select></label><label>Gallery Caption<input id="galleryImageTitle" placeholder="Campus life"></label><div class="cms-actions"><button class="btn" type="button" id="addGallerySlot">Add To Gallery</button></div></form><div class="cms-list media-list" id="gallerySlotList"></div><h3>Uploaded Files</h3><div class="cms-list media-list" id="mediaList"></div>`,
     eventsAdmin: `<h3>Events</h3>${simpleEditorTemplate("event", `<input type="hidden" name="id"><label>Title<input name="title" required></label><label>Slug<input name="slug" placeholder="sports-week"></label><label>Category<input name="category" value="Campus"></label><label>Date<input name="startsAt" type="date" required></label><label class="wide">Details<textarea name="body" rows="4"></textarea></label>`).replace("eventList", "eventAdminList")}`,
     facultyAdmin: `<h3>Faculty Pages</h3><p>Add departments such as Basic ECD, Basic Level, Science, Education, Humanities and Management, then add teachers under them.</p><form id="departmentForm" class="cms-editor-grid"><label>Department name<input id="departmentName" placeholder="Science"></label><div class="cms-actions"><button class="btn primary" type="submit">Add Department</button></div></form><form id="teacherForm" class="cms-editor-grid"><label>Name<input name="name" required></label><label>Department<select id="teacherDepartment" name="departmentId"></select></label><label>Subject<input name="subject"></label><label>Qualification<input name="qualification"></label><label>Experience<input name="experience"></label><label>Email<input name="email" type="email"></label><label class="wide">Photo URL<input name="photoUrl"></label><div class="cms-actions wide"><button class="btn primary" type="submit">Add Teacher</button></div></form><div class="cms-list" id="facultyAdminList"></div>`,
     resultsAdmin: `<h3>Results</h3>${simpleEditorTemplate("resultAdmin", `<label>Student ID<input name="studentId" required></label><label>Symbol number<input name="symbolNumber" required></label><label>Student name<input name="studentName" required></label><label>Class<input name="className" required></label><label>GPA<input name="gpa" type="number" step="0.01" min="0" max="4" required></label><label>Remarks<input name="remarks" value="Passed"></label><label class="check-row"><input name="published" type="checkbox"> Published</label>`).replace("resultAdminList", "resultAdminList")}`,

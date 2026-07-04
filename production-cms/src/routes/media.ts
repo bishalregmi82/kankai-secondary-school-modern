@@ -9,7 +9,7 @@ import { requireAdmin, requireCsrf } from "../security/session.js";
 import { requirePermission } from "../security/rbac.js";
 
 export const mediaRouter = express.Router();
-mediaRouter.use(requireAdmin);
+export const publicMediaRouter = express.Router();
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -33,6 +33,25 @@ const mediaUpdateSchema = z.object({
   useForAllLanguages: z.boolean().optional()
 });
 
+const mediaSlotSchema = z.object({
+  heroImage: z.string().url().optional().or(z.literal("")),
+  logoImage: z.string().url().optional().or(z.literal("")),
+  principalPhoto: z.string().url().optional().or(z.literal("")),
+  galleryImages: z.array(z.object({
+    title: z.string().max(160),
+    url: z.string().url()
+  })).max(24).default([])
+});
+
+const mediaSlotsKey = "media.slots";
+
+publicMediaRouter.get("/slots", async (_req, res) => {
+  const setting = await prisma.setting.findUnique({ where: { key: mediaSlotsKey } });
+  res.json({ slots: setting?.value || {} });
+});
+
+mediaRouter.use(requireAdmin);
+
 mediaRouter.get("/", requirePermission("read", "media"), async (req, res) => {
   const search = String(req.query.search || "").trim();
   const media = await prisma.media.findMany({
@@ -48,6 +67,22 @@ mediaRouter.get("/", requirePermission("read", "media"), async (req, res) => {
     take: 100
   });
   res.json({ media });
+});
+
+mediaRouter.get("/slots", requirePermission("read", "media"), async (_req, res) => {
+  const setting = await prisma.setting.findUnique({ where: { key: mediaSlotsKey } });
+  res.json({ slots: setting?.value || {} });
+});
+
+mediaRouter.put("/slots", requireCsrf, requirePermission("update", "media"), async (req, res) => {
+  const slots = mediaSlotSchema.parse(req.body);
+  const setting = await prisma.setting.upsert({
+    where: { key: mediaSlotsKey },
+    create: { key: mediaSlotsKey, value: slots },
+    update: { value: slots }
+  });
+  await prisma.auditLog.create({ data: { userId: res.locals.user.id, action: "media_slots_update", entity: "Setting", entityId: setting.id } });
+  res.json({ slots: setting.value });
 });
 
 function uploadToCloudinary(file: Express.Multer.File): Promise<UploadApiResponse> {

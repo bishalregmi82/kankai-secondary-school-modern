@@ -54,6 +54,8 @@ p { color: var(--muted); margin: 1rem 0 0; }
 .nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 190px; }
 .brand-mark { width: 46px; height: 46px; border-radius: 16px; display: grid; place-items: center; background: linear-gradient(135deg, var(--primary), var(--secondary)); color: #fff; font-weight: 900; box-shadow: 0 12px 30px rgba(47,128,237,.25); }
+.brand-mark.has-image { overflow: hidden; background: #fff; border: 1px solid var(--line); }
+.brand-mark.has-image img { width: 100%; height: 100%; object-fit: cover; }
 .brand small { display: block; color: var(--muted); margin-top: -4px; }
 .nav-links { display: flex; gap: 4px; align-items: center; }
 .nav-links a, .admin-tab { padding: 10px 13px; border-radius: 999px; color: var(--muted); font-weight: 700; font-size: .92rem; transition: .25s; }
@@ -163,6 +165,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible
 .cms-list article small { color: var(--muted); font-weight: 700; }
 .media-list article span { grid-template-columns: 52px 1fr; align-items: center; }
 .media-list img { width: 52px; height: 52px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); }
+.media-slots { padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--light); }
 .cms-editor-grid { display: grid; gap: 14px; margin-top: 18px; }
 .cms-editor-grid label { display: grid; gap: 7px; color: var(--muted); font-weight: 800; }
 .cms-editor-grid input, .cms-editor-grid select, .cms-editor-grid textarea { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--white); color: var(--text); font: inherit; }

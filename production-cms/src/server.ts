@@ -4,7 +4,7 @@ import cookieParser from "cookie-parser";
 import { securityMiddleware } from "./security/security-middleware.js";
 import { authRouter } from "./routes/auth.js";
 import { contentRouter, publicContentRouter } from "./routes/content.js";
-import { mediaRouter } from "./routes/media.js";
+import { mediaRouter, publicMediaRouter } from "./routes/media.js";
 import { backupRouter } from "./routes/backups.js";
 import { siteRouter } from "./routes/site-management.js";
 import { noticeRouter, publicNoticeRouter } from "./routes/notices.js";
@@ -62,6 +62,7 @@ app.use("/api/public/events", publicEventRouter);
 app.use("/api/public/faculty", publicFacultyRouter);
 app.use("/api/public/results", publicResultRouter);
 app.use("/api/public/seo", publicSeoRouter);
+app.use("/api/public/media", publicMediaRouter);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
